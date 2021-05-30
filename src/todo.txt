@@ -1,0 +1,8 @@
+swagger
+https://www.km4city.org/swagger/external/index.html#/Services/get
+
+url traffic density
+https://firenzetraffic.km4city.org/trafficRTDetails/density/read.php?sLat=43.7668480959235&sLong=11.232533454895021&eLat=43.77769423199634&eLong=11.269869804382326&zoom=15
+
+url traffic roads
+https://l data urlfirenzetraffic.km4city.org/trafficRTDetails/roads/read.php?sLat=43.7668480959235&sLong=11.232533454895021&eLat=43.77769423199634&eLong=11.269869804382326&zoom=15
