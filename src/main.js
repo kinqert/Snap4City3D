@@ -1,9 +1,10 @@
 var map;
 const datasetName = 'Florence_PM10';
-const wmsUrlTest = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AFlorence_PM10&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2021-03-05T10:00:00.000Z&tiled=true&width=512&height=512&srs=EPSG%3A4326/{z}/{x}/{y}'
-const wms = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AFlorence_PM10&styles=&format=image%2Fpng&version=1.1.1&time=&tiled=true&width=256&height=256&srs=EPSG%3A4326/{z}/{x}/{y}`
-const wms3 = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3A' + wmsDatasetName + '&styles=&format=image%2Fpng&version=1.1.1&time=' + timestampISO + '&tiled=true&width=' + tileSize + '&height=' + tileSize + '&srs=EPSG%3A4326/{z}/{x}/{y}'`;
-const wms4 = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AGRALheatmap&styles=&format=image%2Fpng&version=1.1.1&time=2021-05-28T07:00:00.000Z&tiled=true&width=256&height=256&srs=EPSG%3A4326/{z}/{x}/{y}`;
+// const wmsUrlTest = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AFlorence_PM10&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2021-03-05T10:00:00.000Z&tiled=true&width=512&height=512&srs=EPSG%3A4326/{z}/{x}/{y}'
+// const wms = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AFlorence_PM10&styles=&format=image%2Fpng&version=1.1.1&tiled=true&width=256&height=256&srs=EPSG%3A4326/{z}/{x}/{y}`
+// const wms3 = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3A' + wmsDatasetName + '&styles=&format=image%2Fpng&version=1.1.1&time=' + timestampISO + '&tiled=true&width=' + tileSize + '&height=' + tileSize + '&srs=EPSG%3A4326/{z}/{x}/{y}'`;
+// const wms4 = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AGRALheatmap&styles=&format=image%2Fpng&version=1.1.1&time=2021-05-28T07:00:00.000Z&tiled=true&width=256&height=256&srs=EPSG%3A4326/{z}/{x}/{y}`;
+const wms = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3APM10Average24HourFlorence&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2020-01-15T20:00:00.000Z&tiled=true&width=512&height=512&srs=EPSG%3A4326';
 var darkmode = false;
 const darkTileData = 'https://a.tile.thunderforest.com/transport-dark/{z}/{x}/{y}.png?apikey=a120aa4adf4b4f92b72805b73035890a';
 const lightTileData = 'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -17,11 +18,20 @@ const florencePosition = {
     longitude: 11.255814,
 };
 
+class Road {
+    constructor(json) {
+        this.name = json.road;
+        this.segments = json.segments;
+    }
+}
+
 function onLoad() {
     const mapLayer = createTileLayer(lightTileData);
     const buildingLayer = createBuildingLayer(cortiBuidlingData);
+    const heatmapLayer = createHeatmapLayer(wms);
     layers = {
         map: mapLayer,
+        heatmap: heatmapLayer,
         building: buildingLayer,
     };
 
@@ -35,12 +45,24 @@ function onLoad() {
         container: 'map',
         layers: [
             mapLayer,
+            heatmapLayer,
             buildingLayer
         ],
         onViewStateChange: ({ viewState }) => {
-            const bb = getBoundingBox(viewState);
-            console.log('new bbox:');
-            console.log(bb);
+            const maxbb = getMaxBoundingBox(viewState);
+            console.log('new max bbox:');
+            url = `https://firenzetraffic.km4city.org/trafficRTDetails/roads/read.php?sLat=${maxbb[0][1]}&sLong=${maxbb[0][0]}&eLat=${maxbb[1][1]}&eLong=${maxbb[1][0]}&zoom=15`;
+            console.log(maxbb);
+            $.ajax({
+                url: url,
+                success: function (result) {
+                    console.log('ajax success result:');
+                    console.log(result);
+                    const pathLayer = createPathLayer(result, `path-layer-${Date.now()}`);
+                    layers.path = pathLayer;
+                    updateLayers();
+                },
+            });
             map.setProps({
                 viewState: viewState,
             });
@@ -71,6 +93,34 @@ function createTileLayer(data, id = 'map-layer') {
             return new deck.BitmapLayer(props, {
                 data: null,
                 image: props.data,
+                bounds: [west, south, east, north]
+            });
+        },
+        onClick: (info, event) => addMarker(info.coordinate),
+
+    });
+
+}
+
+function createHeatmapLayer(data, id = 'heatmap-layer') {
+    return new deck.TileLayer({
+        id: id,
+        // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_servers
+
+        minZoom: 0,
+        maxZoom: 20,
+        tileSize: 512,
+        opacity: 0.2,
+        pickable: true,
+
+        renderSubLayers: props => {
+            const {
+                bbox: { west, south, east, north }
+            } = props.tile;
+
+            return new deck.BitmapLayer(props, {
+                data: null,
+                image: wms + `&bbox=${west},${south},${east},${north}`,
                 bounds: [west, south, east, north]
             });
         },
@@ -122,6 +172,38 @@ function createIconLayer(id = 'icon-layer') {
     });
 }
 
+function createLineLayer(data, id = 'line-layer') {
+    var segments = [];
+    for (var i = 1; i < data.length; i++)
+        segments.push(...(data[i].segments));
+    return new deck.LineLayer({
+        id: id,
+        data: [data[1].segments[0]],
+        // pickable: true,
+        getWidth: 50,
+        getSourcePosition: d => [d.start.lat, d.start.long],
+        getTargetPosition: d => [d.end.long, d.end.lat],
+        getColor: d => [0, 0, 255],
+    });
+}
+
+function createPathLayer(data, id = 'path-layer') {
+    return new deck.PathLayer({
+        id: id,
+        data: data,
+        getPath: d => {
+            var path = [];
+            for (var i = 0; i < d.segments.length; i++) {
+                path.push([parseFloat(d.segments[i].start.long), parseFloat(d.segments[i].start.lat)]);
+                path.push([parseFloat(d.segments[i].end.long), parseFloat(d.segments[i].end.lat)]);
+            }
+            return path;
+        },
+        getColor: d => [0, 0, 255],
+        getWidth: d => 10,
+    });
+}
+
 function changeMapTiles() {
     darkmode = !darkmode;
     const mapLayer = darkmode ? createTileLayer(darkTileData) : createTileLayer(lightTileData);
@@ -152,15 +234,31 @@ function updateLayers() {
     map.setProps({
         layers: [
             layers.map,
+            layers.heatmap,
             layers.building,
             layers.icon,
+            layers.path,
         ]
     })
 }
 
 function getMaxBoundingBox(viewState) {
     const bb = getBoundingBox(viewState);
-    var minLat = bb;
+    var minLat = bb[0][0];
+    var maxLat = bb[0][0];
+    var minLng = bb[0][1];
+    var maxLng = bb[0][1];
+    for (var i = 1; i < bb.length; i++) {
+        if (minLat > bb[i][0])
+            minLat = bb[i][0];
+        if (maxLat < bb[i][0])
+            maxLat = bb[i][0];
+        if (minLng > bb[i][1])
+            minLng = bb[i][1];
+        if (maxLng < bb[i][1])
+            maxLng = bb[i][1];
+    }
+    return [[minLat, minLng], [maxLat, maxLng]];
 }
 
 function getBoundingBox(viewState) {
