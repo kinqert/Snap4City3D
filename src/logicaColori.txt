@@ -1,0 +1,43 @@
+var value = Number(roads[i].data[t][seg.id].replace(",", "."));
+var green = 0.3;
+var yellow = 0.6;
+var orange = 0.9;
+if (seg.Lanes == 2) {
+    green = 0.6;
+    yellow = 1.2;
+    orange = 1.8;
+}
+if (seg.FIPILI == 1) {
+    green = 0.25;
+    yellow = 0.5;
+    orange = 0.75;
+}
+if (seg.Lanes == 3) {
+    green = 0.9;
+    yellow = 1.5;
+    orange = 2;
+}
+if (seg.Lanes == 4) {
+    green = 1.2;
+    yellow = 1.6;
+    orange = 2;
+}
+if (seg.Lanes == 5) {
+    green = 1.6;
+    yellow = 2;
+    orange = 2.4;
+}
+if (seg.Lanes == 6) {
+    green = 2;
+    yellow = 2.4;
+    orange = 2.8;
+}
+if (value <= green)
+    defaults.color = "#00ff00";
+else if (value <= yellow)
+    defaults.color = "#ffff00";
+else if (value <= orange)
+    defaults.color = "#ff8c00";
+else
+    defaults.color = "#ff0000";
+defaults.fillColor = defaults.color;

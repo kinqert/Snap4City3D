@@ -1,15 +1,16 @@
 var map;
 const datasetName = 'Florence_PM10';
-// const wmsUrlTest = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AFlorence_PM10&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2021-03-05T10:00:00.000Z&tiled=true&width=512&height=512&srs=EPSG%3A4326/{z}/{x}/{y}'
-// const wms = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AFlorence_PM10&styles=&format=image%2Fpng&version=1.1.1&tiled=true&width=256&height=256&srs=EPSG%3A4326/{z}/{x}/{y}`
-// const wms3 = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3A' + wmsDatasetName + '&styles=&format=image%2Fpng&version=1.1.1&time=' + timestampISO + '&tiled=true&width=' + tileSize + '&height=' + tileSize + '&srs=EPSG%3A4326/{z}/{x}/{y}'`;
-// const wms4 = `https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3AGRALheatmap&styles=&format=image%2Fpng&version=1.1.1&time=2021-05-28T07:00:00.000Z&tiled=true&width=256&height=256&srs=EPSG%3A4326/{z}/{x}/{y}`;
 const wms = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3APM10Average24HourFlorence&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2020-01-15T20:00:00.000Z&tiled=true&width=512&height=512&srs=EPSG%3A4326';
+const wmsTraffic = 'https://wmsserver.snap4city.org/geoserver/wms?service=WMS&request=GetMap&layers=Firenze_TrafficRealtime_2021-06-03T15-41-00&styles=&format=image%2Fpng&transparent=true&version=1.1.1&width=256&height=256&srs=EPSG%3A4326';
 var darkmode = false;
+var buildingOsm = false;
+var dragging = false;
+var ajaxCall;
 const darkTileData = 'https://a.tile.thunderforest.com/transport-dark/{z}/{x}/{y}.png?apikey=a120aa4adf4b4f92b72805b73035890a';
 const lightTileData = 'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const cortiBuidlingData = 'http://127.0.0.1:5500/src/data/edificiFirenze.geojson';
-const osmBuildingsData = 'https://{s}.data.osmbuildings.org/0.2/anonymous/tile/{z}/{x}/{y}.json';
+const osmBuildingsData = 'https://b.data.osmbuildings.org/0.2/anonymous/tile/{z}/{x}/{y}.json';
+const testCyclingPath = 'https://servicemap.disit.org/WebAppGrafo/api/v1/?queryId=10916300fca38e05e03096daa0418a13&format=json&selection=wkt:POLYGON((11.225590994714041%2043.76180889340632,%2011.27680900528596%2043.76180889340632,%2011.289249734546418%2043.788121029543056,%2011.213150265453583%2043.788121029543056))&maxResults=0&geometry=true&fullCount=false';
 var layers;
 var markers = [];
 
@@ -23,15 +24,24 @@ class Road {
         this.name = json.road;
         this.segments = json.segments;
     }
+
+    static makeRoadsFromJson(json) {
+        console.log('making roads from json');
+        console.log('json: ');
+        console.log(json);
+    }
 }
 
 function onLoad() {
     const mapLayer = createTileLayer(lightTileData);
     const buildingLayer = createBuildingLayer(cortiBuidlingData);
+    // const buildingLayer = createOsmBuildingLayer();
     const heatmapLayer = createHeatmapLayer(wms);
+    const trafficLayer = createHeatmapLayer(wmsTraffic, "traffic-layer", 256, 1);
     layers = {
         map: mapLayer,
         heatmap: heatmapLayer,
+        traffic: trafficLayer,
         building: buildingLayer,
     };
 
@@ -46,33 +56,28 @@ function onLoad() {
         layers: [
             mapLayer,
             heatmapLayer,
+            trafficLayer,
             buildingLayer
         ],
         onViewStateChange: ({ viewState }) => {
-            const maxbb = getMaxBoundingBox(viewState);
-            console.log('new max bbox:');
-            url = `https://firenzetraffic.km4city.org/trafficRTDetails/roads/read.php?sLat=${maxbb[0][1]}&sLong=${maxbb[0][0]}&eLat=${maxbb[1][1]}&eLong=${maxbb[1][0]}&zoom=15`;
-            console.log(maxbb);
-            $.ajax({
-                url: url,
-                success: function (result) {
-                    console.log('ajax success result:');
-                    console.log(result);
-                    const pathLayer = createPathLayer(result, `path-layer-${Date.now()}`);
-                    layers.path = pathLayer;
-                    updateLayers();
-                },
-            });
+            if (!dragging)
+                updateTraffic(viewState);
             map.setProps({
                 viewState: viewState,
             });
             return viewState;
         },
+        getTooltip: ({ object }) => object && {
+            html: `<h2>${object.name}</h2>`,
+        },
+        onDragEnd: ({ viewport }) => dragging = false,
+        onDragStart: ({ viewport }) => dragging = true,
     });
 
     addEventListeners();
 }
 
+// Layers section
 function createTileLayer(data, id = 'map-layer') {
     return new deck.TileLayer({
         id: id,
@@ -102,15 +107,15 @@ function createTileLayer(data, id = 'map-layer') {
 
 }
 
-function createHeatmapLayer(data, id = 'heatmap-layer') {
+function createHeatmapLayer(url, id = 'heatmap-layer', tileSize = 512, opacity = 0.2) {
     return new deck.TileLayer({
         id: id,
         // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_servers
 
         minZoom: 0,
         maxZoom: 20,
-        tileSize: 512,
-        opacity: 0.2,
+        tileSize: tileSize,
+        opacity: opacity,
         pickable: true,
 
         renderSubLayers: props => {
@@ -120,7 +125,7 @@ function createHeatmapLayer(data, id = 'heatmap-layer') {
 
             return new deck.BitmapLayer(props, {
                 data: null,
-                image: wms + `&bbox=${west},${south},${east},${north}`,
+                image: url + `&bbox=${west},${south},${east},${north}`,
                 bounds: [west, south, east, north]
             });
         },
@@ -130,12 +135,29 @@ function createHeatmapLayer(data, id = 'heatmap-layer') {
 
 }
 
+createGeoJSONLayer(data, id = "geojson-layer") {
+    return new deck.GeoJsonLayer({
+        id: id,
+        data: data,
+        extruded: true,
+        // pickable: true,
+        stroked: false,
+        filled: true,
+        lineWidthScale: 20,
+        lineWidthMinPixels: 2,
+        getFillColor: [255, 0, 0, 200],
+        getLineColor: [0, 0, 255],
+        getRadius: 100,
+        getLineWidth: 1,
+    });
+}
+
 function createBuildingLayer(data, id = 'building-layer') {
     return new deck.GeoJsonLayer({
         id: id,
         data: data,
         extruded: true,
-        pickable: true,
+        // pickable: true,
         stroked: false,
         filled: true,
         lineWidthScale: 20,
@@ -148,10 +170,49 @@ function createBuildingLayer(data, id = 'building-layer') {
     });
 }
 
+function createOsmBuildingLayer(id = "osm-building-layer") {
+    return new deck.TileLayer({
+        id: id,
+        // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_servers
+        data: osmBuildingsData,
+
+        minZoom: 0,
+        maxZoom: 20,
+        tileSize: 256,
+        opacity: 1,
+        // pickable: true,
+
+        renderSubLayers: props => {
+            const {
+                bbox: { west, south, east, north }
+            } = props.tile;
+
+            return new deck.GeoJsonLayer({
+                id: id,
+                data: props.data,
+                extruded: true,
+                // pickable: true,
+                stroked: false,
+                filled: true,
+                lineWidthScale: 20,
+                lineWidthMinPixels: 2,
+                getFillColor: [255, 102, 0, 200],
+                getLineColor: [255, 255, 255],
+                getElevation: f => f.properties.height || f.properties.levels || 10,
+                getRadius: 100,
+                getLineWidth: 1,
+            });
+        },
+        onClick: (info, event) => addMarker(info.coordinate),
+
+    });
+}
+
 
 function createIconLayer(id = 'icon-layer') {
     const ICON_MAPPING = {
-        marker: { x: 0, y: 0, width: 128, height: 128, mask: true }
+        marker: { x: 0, y: 0, width: 128, height: 128, mask: true },
+        warningMarker: { x: 128, y: 0, width: 128, height: 128, mask: true },
     };
 
     return new deck.IconLayer({
@@ -178,12 +239,12 @@ function createLineLayer(data, id = 'line-layer') {
         segments.push(...(data[i].segments));
     return new deck.LineLayer({
         id: id,
-        data: [data[1].segments[0]],
+        data: segments,
         // pickable: true,
-        getWidth: 50,
-        getSourcePosition: d => [d.start.lat, d.start.long],
-        getTargetPosition: d => [d.end.long, d.end.lat],
-        getColor: d => [0, 0, 255],
+        getWidth: 10,
+        getSourcePosition: d => [parseFloat(d.start.long), parseFloat(d.start.lat)],
+        getTargetPosition: d => [parseFloat(d.end.long), parseFloat(d.end.lat)],
+        getColor: d => d.color || [0, 0, 255],
     });
 }
 
@@ -204,15 +265,6 @@ function createPathLayer(data, id = 'path-layer') {
     });
 }
 
-function changeMapTiles() {
-    darkmode = !darkmode;
-    const mapLayer = darkmode ? createTileLayer(darkTileData) : createTileLayer(lightTileData);
-    layers.map = mapLayer;
-
-    updateLayers();
-    updateTheme();
-}
-
 function addMarker(coordinate) {
     const r = Math.floor(Math.random() * 255);
     const g = Math.floor(Math.random() * 255);
@@ -230,14 +282,64 @@ function addMarker(coordinate) {
     updateLayers();
 }
 
+function updateTraffic(viewState) {
+    const maxbb = getMaxBoundingBox(viewState);
+    urlRoads = `https://firenzetraffic.km4city.org/trafficRTDetails/roads/read.php?sLat=${maxbb[0][1]}&sLong=${maxbb[0][0]}&eLat=${maxbb[1][1]}&eLong=${maxbb[1][0]}&zoom=15`;
+    urlDensity = `https://firenzetraffic.km4city.org/trafficRTDetails/density/read.php?sLat=${maxbb[0][1]}&sLong=${maxbb[0][0]}&eLat=${maxbb[1][1]}&eLong=${maxbb[1][0]}&zoom=15`;
+    if (ajaxCall != null) {
+        ajaxCall.abort();
+        ajaxCall = null;
+    }
+    ajaxCall = $.ajax({
+        url: urlRoads,
+        success: function (result) {
+            ajaxCall = null;
+            addDensity(urlDensity, result);
+        },
+    });
+}
+
+function addDensity(urlDensity, roads) {
+    $.ajax({
+        url: urlDensity,
+        success: function (result) {
+            console.log('ajax density success result:');
+            console.log(result);
+
+            // Add logic stuffs in here
+            if (roads[0].road == null)
+                roads = roads.slice(1);
+
+            // For all roads
+            for (var i = 0; i < roads.length; i++) {
+                var road = roads[i];
+                var density = result[road.road];
+                // for all segments
+                for (var j = 0; j < road.segments.length; j++) {
+                    var segment = road.segments[j];
+                    var segmentDensity = density.data[0][segment.id];
+                    segment.density = segmentDensity;
+                    segment.color = getOldDensityColor(segment);
+                }
+            }
+
+            const lineLayer = createLineLayer(roads, `line-layer-${Date.now()}`);
+            layers.line = lineLayer;
+            updateLayers();
+        },
+    });
+}
+
 function updateLayers() {
     map.setProps({
         layers: [
             layers.map,
             layers.heatmap,
+            layers.traffic,
             layers.building,
-            layers.icon,
+            layers.line,
             layers.path,
+            layers.icon,
         ]
     })
 }
@@ -279,6 +381,71 @@ function updateTheme() {
 
 function addEventListeners() {
     $('#changeMapBtn').on('click', changeMapTiles);
+    $('#changeBuildingBtn').on('click', changeBuildingLayer);
+}
+
+function getOldDensityColor(segment) {
+    var green = 0.3;
+    var yellow = 0.6;
+    var orange = 0.9;
+    if (segment.Lanes == 2) {
+        green = 0.6;
+        yellow = 1.2;
+        orange = 1.8;
+    }
+    if (segment.FIPILI == 1) {
+        green = 0.25;
+        yellow = 0.5;
+        orange = 0.75;
+    }
+    if (segment.Lanes == 3) {
+        green = 0.9;
+        yellow = 1.5;
+        orange = 2;
+    }
+    if (segment.Lanes == 4) {
+        green = 1.2;
+        yellow = 1.6;
+        orange = 2;
+    }
+    if (segment.Lanes == 5) {
+        green = 1.6;
+        yellow = 2;
+        orange = 2.4;
+    }
+    if (segment.Lanes == 6) {
+        green = 2;
+        yellow = 2.4;
+        orange = 2.8;
+    }
+    if (segment.density <= green)
+        return [0, 255, 0];
+    else if (segment.density <= yellow)
+        return [255, 255 ,0];
+    else if (segment.density <= orange)
+        return [255, 140, 0];
+    else
+        return [255, 0, 0];
+}
+
+function changeMapTiles() {
+    darkmode = !darkmode;
+    const mapLayer = darkmode ? createTileLayer(darkTileData) : createTileLayer(lightTileData);
+    layers.map = mapLayer;
+
+    updateLayers();
+    updateTheme();
+}
+
+function changeBuildingLayer() {
+    buildingOsm = !buildingOsm;
+    var buildingLayer;
+    if (buildingOsm)
+        buildingLayer = createOsmBuildingLayer();
+    else
+        buildingLayer = createBuildingLayer(cortiBuidlingData);
+    layers.building = buildingLayer;
+    updateLayers();
 }
 
 window.onload = onLoad;
