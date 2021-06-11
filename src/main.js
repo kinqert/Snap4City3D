@@ -60,8 +60,11 @@ function onLoad() {
             buildingLayer
         ],
         onViewStateChange: ({ viewState }) => {
-            if (!dragging)
+            if (!dragging) {
                 updateTraffic(viewState);
+                updateCyclingPath(viewState);
+                updateLayers();
+            }
             map.setProps({
                 viewState: viewState,
             });
@@ -135,13 +138,29 @@ function createHeatmapLayer(url, id = 'heatmap-layer', tileSize = 512, opacity =
 
 }
 
-createGeoJSONLayer(data, id = "geojson-layer") {
+function createGeoJSONLayer(data, id = "geojson-layer") {
     return new deck.GeoJsonLayer({
         id: id,
         data: data,
         extruded: true,
         // pickable: true,
-        stroked: false,
+        stroked: true,
+        filled: true,
+        lineWidthScale: 20,
+        lineWidthMinPixels: 2,
+        getFillColor: [255, 0, 0, 200],
+        getLineColor: [0, 0, 255],
+        getRadius: 100,
+        getLineWidth: 1,
+    });
+}
+
+function createWktLayer(data, id = "wkt-layer") {
+    return new deck.GeoJsonLayer({
+        id: id,
+        data: data,
+        loaders: [WKTLoader],
+        stroked: true,
         filled: true,
         lineWidthScale: 20,
         lineWidthMinPixels: 2,
@@ -325,9 +344,22 @@ function addDensity(urlDensity, roads) {
 
             const lineLayer = createLineLayer(roads, `line-layer-${Date.now()}`);
             layers.line = lineLayer;
-            updateLayers();
         },
     });
+}
+
+function updateCyclingPath(viewState) {
+    const bb = getBoundingBox(viewState);
+    var testCyclingPath = 'https://servicemap.disit.org/WebAppGrafo/api/v1/?queryId=10916300fca38e05e03096daa0418a13&format=json';
+    testCyclingPath += "&selection=wkt:POLYGON((";
+    testCyclingPath += `${bb[0][0]}%20${bb[0][1]}`;
+    for (var i = 1; i < bb.length; i++) {
+        testCyclingPath += `,%20${bb[i][0]}%20${bb[i][1]}`;
+    }
+    testCyclingPath += "))&maxResults=0&geometry=true&fullCount=false";
+
+    const cyclingLayer = createWktLayer(testCyclingPath);
+    layers.cycling = cyclingLayer;
 }
 
 function updateLayers() {
@@ -339,6 +371,7 @@ function updateLayers() {
             layers.building,
             layers.line,
             layers.path,
+            layers.cycling,
             layers.icon,
         ]
     })
@@ -366,7 +399,7 @@ function getMaxBoundingBox(viewState) {
 function getBoundingBox(viewState) {
     const viewport = new deck.WebMercatorViewport(viewState);
     const nw = viewport.unproject([0, 0]);
-    const ne = viewport.unproject([0, viewport.height]);
+    const ne = viewport.unproject([viewport.width, 0]);
     const se = viewport.unproject([viewport.width, viewport.height]);
     const sw = viewport.unproject([0, viewport.height]);
     return [nw, ne, se, sw];
@@ -421,7 +454,7 @@ function getOldDensityColor(segment) {
     if (segment.density <= green)
         return [0, 255, 0];
     else if (segment.density <= yellow)
-        return [255, 255 ,0];
+        return [255, 255, 0];
     else if (segment.density <= orange)
         return [255, 140, 0];
     else
