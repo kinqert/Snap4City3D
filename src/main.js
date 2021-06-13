@@ -62,7 +62,8 @@ function onLoad() {
         onViewStateChange: ({ viewState }) => {
             if (!dragging) {
                 updateTraffic(viewState);
-                updateCyclingPath(viewState);
+                updateSensorSite(viewState);
+                // updateCyclingPath(viewState);
                 updateLayers();
             }
             map.setProps({
@@ -252,6 +253,29 @@ function createIconLayer(id = 'icon-layer') {
     });
 }
 
+function createSensorLayer(data, id = 'sensor-layer') {
+    const ICON_MAPPING = {
+        sensor: { x: 0, y: 0, width: 32, height: 37 },
+    };
+
+    return new deck.IconLayer({
+        id: id,
+        data: data,
+        pickable: true,
+        iconAtlas: 'http://localhost:5500/src/images/sensor_site.png',
+        iconMapping: ICON_MAPPING,
+        getIcon: d => 'sensor',
+
+        sizeScale: 15,
+        getPosition: d => d.geometry.coordinates,
+        getSize: d => 5,
+        parameters: {
+            depthTest: false
+        },
+    });
+
+}
+
 function createLineLayer(data, id = 'line-layer') {
     var segments = [];
     for (var i = 1; i < data.length; i++)
@@ -325,7 +349,7 @@ function addDensity(urlDensity, roads) {
             console.log('ajax density success result:');
             console.log(result);
 
-            // Add logic stuffs in here
+            // Removing first null object
             if (roads[0].road == null)
                 roads = roads.slice(1);
 
@@ -349,17 +373,26 @@ function addDensity(urlDensity, roads) {
 }
 
 function updateCyclingPath(viewState) {
-    const bb = getBoundingBox(viewState);
-    var testCyclingPath = 'https://servicemap.disit.org/WebAppGrafo/api/v1/?queryId=10916300fca38e05e03096daa0418a13&format=json';
-    testCyclingPath += "&selection=wkt:POLYGON((";
-    testCyclingPath += `${bb[0][0]}%20${bb[0][1]}`;
-    for (var i = 1; i < bb.length; i++) {
-        testCyclingPath += `,%20${bb[i][0]}%20${bb[i][1]}`;
-    }
-    testCyclingPath += "))&maxResults=0&geometry=true&fullCount=false";
+    const queryId = '10916300fca38e05e03096daa0418a13';
+    const cyclingPath = getWebAppGrafoPath(queryId, viewState);
 
-    const cyclingLayer = createWktLayer(testCyclingPath);
+    const cyclingLayer = createWktLayer(cyclingPath);
     layers.cycling = cyclingLayer;
+}
+
+function updateSensorSite(viewState) {
+    const queryId = '76e0be36369db8598c6573716e84ae6c';
+    const sensorPath = getWebAppGrafoPath(queryId, viewState);
+
+    $.ajax({
+        url: sensorPath,
+        success: function (result) {
+
+            const sensorLayer = createSensorLayer(result.SensorSites.features);
+            layers.sensors = sensorLayer;
+            updateLayers();
+        },
+    });
 }
 
 function updateLayers() {
@@ -373,8 +406,21 @@ function updateLayers() {
             layers.path,
             layers.cycling,
             layers.icon,
+            layers.sensors,
         ]
     })
+}
+
+function getWebAppGrafoPath(queryId, viewState) {
+    const bb = getBoundingBox(viewState);
+    var testCyclingPath = `https://servicemap.disit.org/WebAppGrafo/api/v1/?queryId=${queryId}&format=json`;
+    testCyclingPath += "&selection=wkt:POLYGON((";
+    testCyclingPath += `${bb[0][0]}%20${bb[0][1]}`;
+    for (var i = 1; i < bb.length; i++) {
+        testCyclingPath += `,%20${bb[i][0]}%20${bb[i][1]}`;
+    }
+    testCyclingPath += "))&maxResults=0&geometry=true&fullCount=false";
+    return testCyclingPath;
 }
 
 function getMaxBoundingBox(viewState) {
