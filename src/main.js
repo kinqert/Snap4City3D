@@ -1,7 +1,8 @@
 var map;
 const datasetName = 'Florence_PM10';
 const wms = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3APM10Average24HourFlorence&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2020-01-15T20:00:00.000Z&tiled=true&width=512&height=512&srs=EPSG%3A4326';
-const wmsTraffic = 'https://wmsserver.snap4city.org/geoserver/wms?service=WMS&request=GetMap&layers=Firenze_TrafficRealtime_2021-06-03T15-41-00&styles=&format=image%2Fpng&transparent=true&version=1.1.1&width=256&height=256&srs=EPSG%3A4326';
+const wmsTraffic = 'https://wmsserver.snap4city.org/geoserver/wms?service=WMS&request=GetMap&layers=Firenze_TrafficRealtime_2021-06-22T15-41-00&styles=&format=image%2Fpng&transparent=true&version=1.1.1&width=256&height=256&srs=EPSG%3A4326';
+const wmsTerrain = 'https://wmsserver.snap4city.org/geoserver/Snap4City/wms?service=WMS&request=GetMap&layers=Snap4City%3ATuscanyDTM1&styles=&format=image%2Fpng&transparent=true&version=1.1.1&time=2021-06-22T10%3A00%3A00.000Z&tiled=true&width=256&height=256&srs=EPSG%3A4326';
 var darkmode = false;
 var buildingOsm = false;
 var dragging = false;
@@ -33,16 +34,19 @@ class Road {
 }
 
 function onLoad() {
-    const mapLayer = createTileLayer(lightTileData);
+    //loaders.registerLoaders(loaders.TerrainLoader);
+    //const mapLayer = createTileLayer(lightTileData);
+    const mapLayer = createTerrainTileLayer(wmsTerrain, lightTileData);
+
     const buildingLayer = createBuildingLayer(cortiBuidlingData);
-    // const buildingLayer = createOsmBuildingLayer();
+    // const buildingLayer = createOsmBuildingLayer(wmsTerrain, lightTileData);
     const heatmapLayer = createHeatmapLayer(wms);
     const trafficLayer = createHeatmapLayer(wmsTraffic, "traffic-layer", 256, 1);
     layers = {
         map: mapLayer,
-        heatmap: heatmapLayer,
-        traffic: trafficLayer,
-        building: buildingLayer,
+        //heatmap: heatmapLayer,
+        //traffic: trafficLayer,
+        //building: buildingLayer,
     };
 
     map = new deck.DeckGL({
@@ -55,14 +59,14 @@ function onLoad() {
         container: 'map',
         layers: [
             mapLayer,
-            heatmapLayer,
-            trafficLayer,
-            buildingLayer
+            //heatmapLayer,
+            //trafficLayer,
+            //buildingLayer
         ],
         onViewStateChange: ({ viewState }) => {
             if (!dragging) {
-                updateTraffic(viewState);
-                updateSensorSite(viewState);
+                //updateTraffic(viewState);
+                //updateSensorSite(viewState);
                 // updateCyclingPath(viewState);
                 updateLayers();
             }
@@ -109,6 +113,55 @@ function createTileLayer(data, id = 'map-layer') {
 
     });
 
+}
+
+function createTerrainTileLayer(url, data, id = 'terrain-layer') {
+    return new deck.TileLayer({
+        id: id,
+        // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_servers
+        data: data,
+
+        minZoom: 0,
+        maxZoom: 20,
+        tileSize: 256,
+        opacity: 1,
+
+        renderSubLayers: props => {
+            const {
+                bbox: { west, south, east, north }
+            } = props.tile;
+
+            return new deck.TerrainLayer({
+                id: props.id,
+                elevationDecoder: {
+                    rScaler: 5,
+                    gScaler: 0,
+                    bScaler: 0,
+                    offset: -10
+                },
+                elevationData: url + `&bbox=${west},${south},${east},${north}`,
+                //texture: data + `&bbox=${west},${south},${east},${north}`,
+                texture: props.data,
+                //texture: data,
+                bounds: [west, south, east, north],
+                //loaders: [loaders.TerrainLoader],
+                
+            });
+        },
+    });
+
+}
+
+function createTerrainLayer(url, data, id = 'terrain-layer') {
+    return new deck.TerrainLayer(props, {
+        id: id,
+        
+        elevationData: url + `&bbox=${west},${south},${east},${north}`,
+        //texture: data + `&bbox=${west},${south},${east},${north}`,
+        texture: props.data,
+        bounds: [west, south, east, north]
+
+    });
 }
 
 function createHeatmapLayer(url, id = 'heatmap-layer', tileSize = 512, opacity = 0.2) {
@@ -262,7 +315,7 @@ function createSensorLayer(data, id = 'sensor-layer') {
         id: id,
         data: data,
         pickable: true,
-        iconAtlas: 'http://localhost:5500/src/images/sensor_site.png',
+        iconAtlas: 'https://www.snap4city.org/dashboardSmartCity/img/gisMapIcons/TransferServiceAndRenting_SensorSite.png',
         iconMapping: ICON_MAPPING,
         getIcon: d => 'sensor',
 

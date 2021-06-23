@@ -1,0 +1,5 @@
+#!/bin/bash
+path=$(pwd)
+sudo docker run --name tesi-nginx -p 8080:80 -v $path:/usr/share/nginx/html:ro -d nginx
+
+echo running at http://localhost:8080/
