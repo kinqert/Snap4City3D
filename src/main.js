@@ -14,33 +14,21 @@ const osmBuildingsData = 'https://b.data.osmbuildings.org/0.2/anonymous/tile/{z}
 const testCyclingPath = 'https://servicemap.disit.org/WebAppGrafo/api/v1/?queryId=10916300fca38e05e03096daa0418a13&format=json&selection=wkt:POLYGON((11.225590994714041%2043.76180889340632,%2011.27680900528596%2043.76180889340632,%2011.289249734546418%2043.788121029543056,%2011.213150265453583%2043.788121029543056))&maxResults=0&geometry=true&fullCount=false';
 var layers;
 var markers = [];
+var opacityWms = 0.2;
 
 const florencePosition = {
     latitude: 43.769562,
     longitude: 11.255814,
 };
 
-class Road {
-    constructor(json) {
-        this.name = json.road;
-        this.segments = json.segments;
-    }
-
-    static makeRoadsFromJson(json) {
-        console.log('making roads from json');
-        console.log('json: ');
-        console.log(json);
-    }
-}
-
 function onLoad() {
     //loaders.registerLoaders(loaders.TerrainLoader);
-    //const mapLayer = createTileLayer(lightTileData);
-    const mapLayer = createTerrainTileLayer(wmsTerrain, lightTileData);
+    const mapLayer = createTileLayer(lightTileData);
+    //const mapLayer = createTerrainTileLayer(wmsTerrain, lightTileData);
 
     const buildingLayer = createBuildingLayer(cortiBuidlingData);
     // const buildingLayer = createOsmBuildingLayer(wmsTerrain, lightTileData);
-    const heatmapLayer = createHeatmapLayer(wms);
+    const heatmapLayer = createHeatmapLayer(wms, 'heatmap-layer', 512, opacityWms);
     const trafficLayer = createHeatmapLayer(wmsTraffic, "traffic-layer", 256, 1);
     layers = {
         map: mapLayer,
@@ -59,7 +47,7 @@ function onLoad() {
         container: 'map',
         layers: [
             mapLayer,
-            //heatmapLayer,
+            heatmapLayer,
             //trafficLayer,
             //buildingLayer
         ],
@@ -68,7 +56,7 @@ function onLoad() {
                 //updateTraffic(viewState);
                 //updateSensorSite(viewState);
                 // updateCyclingPath(viewState);
-                updateLayers();
+                //updateLayers();
             }
             map.setProps({
                 viewState: viewState,
@@ -134,17 +122,21 @@ function createTerrainTileLayer(url, data, id = 'terrain-layer') {
             return new deck.TerrainLayer({
                 id: props.id,
                 elevationDecoder: {
-                    rScaler: 5,
+                    rScaler: 1,
                     gScaler: 0,
                     bScaler: 0,
                     offset: -10
                 },
+                opacity: 1,
                 elevationData: url + `&bbox=${west},${south},${east},${north}`,
                 //texture: data + `&bbox=${west},${south},${east},${north}`,
                 texture: props.data,
                 //texture: data,
                 bounds: [west, south, east, north],
                 //loaders: [loaders.TerrainLoader],
+                //renderSubLayers: props => {
+                    //return createBuildingLayer(cortiBuidlingData);
+                //},
                 
             });
         },
